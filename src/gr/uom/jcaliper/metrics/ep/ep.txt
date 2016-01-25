@@ -1,0 +1,556 @@
+package gr.uom.jcaliper.metrics.ep;
+
+import gr.uom.jcaliper.metrics.Metric;
+import gr.uom.jcaliper.metrics.MetricCalculator;
+import gr.uom.jcaliper.preferences.Preferences;
+import gr.uom.jcaliper.system.CratEntity;
+import gr.uom.jcaliper.system.EntitySet;
+import gr.uom.jcaliper.system.HashedClass;
+import gr.uom.jcaliper.system.IEntityPool;
+
+/**
+ * Data structures designed to speed up Entity Placement calculation
+ * 
+ * @author Panagiotis Kouros
+ */
+public abstract class EPCalculator extends MetricCalculator {
+
+	protected final IEntityPool entities;
+	protected final int nEntities;
+
+	protected EntitySet internalRelatives;
+	protected EntitySet externalRelatives;
+	protected EntitySet welcome = new EntitySet();
+
+	protected EPCalculator(HashedClass prototype, Metric metric) {
+		super(prototype, metric);
+		entities = metric.getCraCase();
+		nEntities = metric.getCraCase().getTotalEntities();
+		initializeRelatives();
+	}
+
+	// Implemented methods
+
+	@Override
+	protected void calculateClassEvaluation() {
+		evaluation = calculateClassEvaluation(this, internalRelatives, externalRelatives);
+	}
+
+	@Override
+	protected void calculateMoveGains() {
+		initializeWelcome();
+		for (int entId : exitCandidates())
+			exitGain.put(entId, exitGainOf(entId));
+		for (int entId : entryCandidates())
+			entryGain.put(entId, entryGainOf(entId));
+	}
+
+	// Abstract methods
+
+	protected abstract void initializeWelcome();
+
+	protected abstract double calculateClassEvaluation(EntitySet theClass, EntitySet intRelatives,
+			EntitySet extRelatives);
+
+	// EntitySets: Relatives and Welcome
+
+	private final void initializeRelatives() {
+		EntitySet relatives = new EntitySet();
+		for (int entityId : this) {
+			CratEntity entity = entities.getEntity(entityId);
+			relatives.addAll(entity.getRelatives());
+		}
+		internalRelatives = intersection(relatives);
+		externalRelatives = relatives.difference(internalRelatives);
+	}
+
+	// Entities candidate to be moved
+
+	private final EntitySet exitCandidates() {
+		EntitySet candidates = new EntitySet();
+		for (int entId : this)
+			if (entities.getEntity(entId).isMovable())
+				candidates.add(entId);
+		return candidates;
+	}
+
+	private final EntitySet entryCandidates() {
+		EntitySet candidates = new EntitySet();
+		for (int entId : welcome)
+			if (entities.getEntity(entId).isMovable())
+				candidates.add(entId);
+		return candidates;
+	}
+
+	// Concrete calculation methods
+
+	protected final double innerDistancesTotal(EntitySet theClass, EntitySet intRelatives) {
+		int classSize = theClass.size() - 1; // exclude the measured entity
+		double innerSimilaritiesTotal = 0.0;
+		for (int entId : intRelatives)
+			innerSimilaritiesTotal += similarity(entId, theClass, classSize);
+		double innerDistancesTotal = theClass.size() - innerSimilaritiesTotal;
+		if (PRINT_DEBUG_INFO)
+			System.out.format("\t\tInnerDistance = (%d-%8.6f)/%d = %8.6f\n", theClass.size(),
+					innerSimilaritiesTotal, theClass.size(), innerDistancesTotal / theClass.size());
+		return innerDistancesTotal;
+	}
+
+	protected final double outerDistancesTotal(EntitySet theClass, EntitySet extRelatives,
+			int nExternal) {
+		int classSize = theClass.size(); // the full class size
+		double outerSimilaritiesTotal = 0.0;
+		for (int entId : extRelatives)
+			outerSimilaritiesTotal += similarity(entId, theClass, classSize);
+		double outerDistancesTotal = nExternal - outerSimilaritiesTotal;
+		if (outerDistancesTotal < 1e-10) // if is 0
+			outerDistancesTotal = 1.0 / nEntities; // set it to any too small number
+		if (PRINT_DEBUG_INFO)
+			System.out.format("\t\tOuterDistance = (%d-%8.6f)/%d = %8.6f\n", nExternal,
+					outerSimilaritiesTotal, nExternal, outerDistancesTotal / nExternal);
+		return outerDistancesTotal;
+	}
+
+	protected final double similarity(int entId, EntitySet theClass, int classSize) {
+		EntitySet entitySet = entities.getEntity(entId).getEntitySet();
+		int intersectionSize = theClass.intersection(entitySet).size();
+		if (intersectionSize == 0)
+			return 0.0;
+		int unionSize = (classSize + entitySet.size()) - intersectionSize;
+		double similarity = ((double) intersectionSize) / unionSize;
+		if (PRINT_DEBUG_INFO)
+			System.out.format("\t\t\tsim(%d,%s) = %d/%d = %8.6f\t\tS(%d)=%s\n", entId, theClass,
+					intersectionSize, unionSize, similarity, entId, entitySet);
+		return similarity;
+	}
+
+	private final double exitGainOf(int moving) {
+		if (PRINT_DEBUG_INFO)
+			System.out.format("\t\tcalculating exit gain of %d...\n", moving);
+		// Construct the resulting new class
+		EntitySet newClass = without(moving);
+		long hash = newClass.calculateHash();
+		// Try to get a known class evaluation
+		Double newEvaluation = metric.getStoredValue(hash);
+		// If not available, calculate and store it
+		if (newEvaluation == null) {
+			EntitySet newIntRelatives = internalRelatives.without(moving);
+			EntitySet newExtRelatives = externalRelatives.plus(moving);
+			newEvaluation = calculateClassEvaluation(newClass, newIntRelatives, newExtRelatives);
+			metric.storeValue(hash, newEvaluation);
+		}
+		if (PRINT_DEBUG_INFO)
+			System.out.format("\t\texit gain of %d = %8.6f\n", moving, newEvaluation - evaluation);
+		return (newEvaluation - evaluation);
+	}
+
+	private final double entryGainOf(int moving) {
+		if (PRINT_DEBUG_INFO)
+			System.out.format("\t\tcalculating entry gain of %d...\n", moving);
+		// Construct the resulting new class
+		EntitySet newClass = plus(moving);
+		long hash = newClass.calculateHash();
+		// Try to get a known class evaluation
+		Double newEvaluation = metric.getStoredValue(hash);
+		// If not available, calculate and store it
+		if (newEvaluation == null) {
+			EntitySet entityRelatives = entities.getEntity(moving).getRelatives();
+			EntitySet newIntRelatives = entityRelatives.intersection(newClass);
+			newIntRelatives.addAll(internalRelatives);
+			newIntRelatives.add(moving);
+			EntitySet newExtRelatives = entityRelatives.difference(newClass);
+			newExtRelatives.addAll(externalRelatives);
+			newExtRelatives.remove(moving);
+			newEvaluation = calculateClassEvaluation(newClass, newIntRelatives, newExtRelatives);
+			metric.storeValue(hash, newEvaluation);
+		}
+		if (PRINT_DEBUG_INFO)
+			System.out.format("\t\tentry gain of %d = %8.6f\n", moving, newEvaluation - evaluation);
+		return (newEvaluation - evaluation);
+	}
+
+	// Don't modify next line. Change the static value in class Preferences
+	private static final boolean PRINT_DEBUG_INFO = Preferences.PRINT_DEBUG_INFO;
+
+	private static final long serialVersionUID = 1L;
+
+}
+package gr.uom.jcaliper.metrics.ep;
+
+import gr.uom.jcaliper.preferences.Preferences;
+import gr.uom.jcaliper.system.CratEntity;
+import gr.uom.jcaliper.system.EntitySet;
+import gr.uom.jcaliper.system.HashedClass;
+
+/**
+ * Data structures designed to speed up Entity Placement calculation
+ */
+public class EPCalculatorClassic extends EPCalculator {
+
+	protected EPCalculatorClassic(HashedClass prototype, EPMetric metric) {
+		super(prototype, metric);
+	}
+
+	// Implementing method for 'Welcome' entities
+
+	@Override
+	protected void initializeWelcome() {
+		EntitySet forbidden = new EntitySet();
+		for (int entityId : this) {
+			CratEntity entity = entities.getEntity(entityId);
+			welcome.addAll(entity.getEntitySet());
+			forbidden.addAll(entity.getForbiddenClassmates());
+		}
+		welcome.removeAll(this);
+		welcome.addAll(externalRelatives);
+		welcome.removeAll(forbidden);
+	}
+
+	// Implementing the classic calculation
+
+	@Override
+	protected double calculateClassEvaluation(EntitySet theClass, EntitySet intRelatives,
+			EntitySet extRelatives) {
+		if (PRINT_DEBUG_INFO)
+			System.out.format("\tEvaluating Class: %s\n", theClass);
+		double innerDistancesTotal = innerDistancesTotal(theClass, intRelatives);
+		double result = innerDistancesTotal / nEntities;
+		int nExternal = nEntities - theClass.size();
+		if (nExternal > 0)
+			result *= nExternal / outerDistancesTotal(theClass, extRelatives, nExternal);
+		if (PRINT_DEBUG_INFO)
+			System.out.format("\t\tEvaluation = %8.6f\t(EP=%8.6f)\n", result,
+					(theClass.size() > 0) ? (result * nEntities) / theClass.size() : 0);
+		return result;
+	}
+
+	private static final long serialVersionUID = 1L;
+
+	// Don't modify next line. Change the static value in class Preferences
+	private static final boolean PRINT_DEBUG_INFO = Preferences.PRINT_DEBUG_INFO;
+
+}
+package gr.uom.jcaliper.metrics.ep;
+
+import gr.uom.jcaliper.preferences.Preferences;
+import gr.uom.jcaliper.system.CratEntity;
+import gr.uom.jcaliper.system.EntitySet;
+import gr.uom.jcaliper.system.HashedClass;
+
+/**
+ * Data structures designed to speed up Entity Placement calculation
+ * 
+ * @author Panagiotis Kouros
+ */
+public class EPCalculatorHybrid extends EPCalculator {
+
+	protected EPCalculatorHybrid(HashedClass prototype, EPMetric metric) {
+		super(prototype, metric);
+	}
+
+	// EntitySets: overridden method for Welcome
+
+	@Override
+	protected void initializeWelcome() {
+		EntitySet forbidden = new EntitySet();
+		for (int entityId : this) {
+			CratEntity entity = entities.getEntity(entityId);
+			welcome.addAll(entity.getEntitySet());
+			forbidden.addAll(entity.getForbiddenClassmates());
+		}
+		// hybrid system: welcome must be boxed
+		welcome = welcome.boxed(entities);
+		welcome.removeAll(this);
+		welcome.addAll(externalRelatives);
+		welcome.removeAll(forbidden);
+	}
+
+	// Implementing the hybrid calculation
+
+	@Override
+	protected double calculateClassEvaluation(EntitySet theClass, EntitySet intRelatives,
+			EntitySet extRelatives) {
+		if (PRINT_DEBUG_INFO)
+			System.out.format("\tEvaluating Class: %s\n", theClass);
+		// hybrid: all sets are sent to calculation methods unboxed
+		EntitySet unboxed = theClass.unbox(entities);
+		double innerDistancesTotal = innerDistancesTotal(unboxed, intRelatives.unbox(entities));
+		double result = innerDistancesTotal / nEntities;
+		int nExternal = nEntities - unboxed.size();
+		if (nExternal > 0)
+			result *= nExternal
+					/ outerDistancesTotal(unboxed, extRelatives.unbox(entities), nExternal);
+		if (PRINT_DEBUG_INFO)
+			System.out.format("\t\tEvaluation = %8.6f\t(EP=%8.6f)\n", result,
+					(unboxed.size() > 0) ? (result * nEntities) / unboxed.size() : 0);
+		return result;
+	}
+
+	private static final long serialVersionUID = 1L;
+
+	// Don't modify next line. Change the static value in class Preferences
+	private static final boolean PRINT_DEBUG_INFO = Preferences.PRINT_DEBUG_INFO;
+
+}
+/**
+ * 
+ */
+package gr.uom.jcaliper.metrics.ep;
+
+import gr.uom.jcaliper.explorer.CraCase;
+import gr.uom.jcaliper.metrics.EvaluatedClass;
+import gr.uom.jcaliper.metrics.Metric;
+import gr.uom.jcaliper.preferences.Preferences;
+import gr.uom.jcaliper.system.HashedClass;
+
+/**
+ * The Entity Placement metric
+ * 
+ * @author Panagiotis Kouros
+ */
+public class EPMetric extends Metric {
+
+	protected ICalculation calculation;
+
+	public EPMetric(CraCase craCase) {
+		super(craCase);
+		shortName = "EP";
+		name = "Entity Placement";
+		// TODO to complete information
+		info = "Entity Placement metric...";
+	}
+
+	@Override
+	public boolean toBeMaximized() {
+		return false;
+	}
+
+	@Override
+	protected void initializeCalculator() {
+		if (craCase.isHybrid())
+			calculation = new HybricCalculation();
+		else
+			calculation = new ClassicCalculation();
+	}
+
+	@Override
+	protected final double calculateClassEvaluation(HashedClass prototype) {
+		EPCalculator calcClass = calculation.getCalculator(prototype, this);
+		calcClass.calculateClassEvaluation();
+		return calcClass.getEvaluation();
+	}
+
+	@Override
+	protected final EvaluatedClass createEvaluatedClass(HashedClass prototype) {
+		if (PRINT_DEBUG_INFO)
+			System.out.format("Creating Evaluated Class: %s\n", prototype);
+		EPCalculator calcClass = calculation.getCalculator(prototype, this);
+		long hash = calcClass.getHash();
+		Double storedValue = getStoredValue(hash);
+		if (storedValue != null)
+			calcClass.setEvaluation(storedValue);
+		else {
+			calcClass.calculateClassEvaluation();
+			storedValues.put(hash, calcClass.getEvaluation());
+		}
+		calcClass.calculateMoveGains();
+		return new EvaluatedClass(calcClass);
+	}
+
+	protected interface ICalculation {
+		public EPCalculator getCalculator(HashedClass prototype, EPMetric metric);
+	}
+
+	private final class ClassicCalculation implements ICalculation {
+		@Override
+		public EPCalculator getCalculator(HashedClass prototype, EPMetric metric) {
+			return new EPCalculatorClassic(prototype, metric);
+		}
+	}
+
+	private final class HybricCalculation implements ICalculation {
+		@Override
+		public EPCalculator getCalculator(HashedClass prototype, EPMetric metric) {
+			return new EPCalculatorHybrid(prototype, metric);
+		}
+	}
+
+	// Don't modify next line. Change the static value in class Preferences
+	protected static final boolean PRINT_DEBUG_INFO = Preferences.PRINT_DEBUG_INFO;
+
+}
+package gr.uom.jcaliper.metrics.ep;
+
+import gr.uom.jcaliper.preferences.Preferences;
+import gr.uom.jcaliper.system.CratEntity;
+import gr.uom.jcaliper.system.EntitySet;
+import gr.uom.jcaliper.system.HashedClass;
+
+/**
+ * Data structures designed to speed up Entity Placement calculation
+ */
+public class EPModCalculatorClassic extends EPCalculator {
+
+	protected EPModCalculatorClassic(HashedClass prototype, EPMetric metric) {
+		super(prototype, metric);
+	}
+
+	// EntitySets: overridden method for Welcome
+
+	@Override
+	protected void initializeWelcome() {
+		EntitySet forbidden = new EntitySet();
+		for (int entityId : this) {
+			CratEntity entity = entities.getEntity(entityId);
+			welcome.addAll(entity.getEntitySet());
+			forbidden.addAll(entity.getForbiddenClassmates());
+		}
+		welcome.removeAll(this);
+		welcome.addAll(externalRelatives);
+		welcome.removeAll(forbidden);
+	}
+
+	// Overridden calculation methods
+
+	@Override
+	protected double calculateClassEvaluation(EntitySet theClass, EntitySet intRelatives,
+			EntitySet extRelatives) {
+		if (PRINT_DEBUG_INFO)
+			System.out.format("\tEvaluating Class: %s\n", theClass);
+		double innerDistancesTotal = innerDistancesTotal(theClass, intRelatives);
+		double result = innerDistancesTotal / nEntities;
+		// The EP_MOD modification
+		// (for EP is: nExternal = nEntities - unboxed.size();)
+		int nExternal = extRelatives.size();
+		if (nExternal > 0)
+			result *= nExternal / outerDistancesTotal(theClass, extRelatives, nExternal);
+		if (PRINT_DEBUG_INFO)
+			System.out.format("\t\tEvaluation = %8.6f\t(EP=%8.6f)\n", result,
+					(theClass.size() > 0) ? (result * nEntities) / theClass.size() : 0);
+		return result;
+	}
+
+	// Calculation methods for the classic model
+
+	private static final long serialVersionUID = 1L;
+
+	// Don't modify next line. Change the static value in class Preferences
+	private static final boolean PRINT_DEBUG_INFO = Preferences.PRINT_DEBUG_INFO;
+
+}
+package gr.uom.jcaliper.metrics.ep;
+
+import gr.uom.jcaliper.preferences.Preferences;
+import gr.uom.jcaliper.system.CratEntity;
+import gr.uom.jcaliper.system.EntitySet;
+import gr.uom.jcaliper.system.HashedClass;
+
+/**
+ * Data structures designed to speed up Entity Placement calculation
+ * 
+ * @author Panagiotis Kouros
+ */
+public class EPModCalculatorHybrid extends EPCalculator {
+
+	protected EPModCalculatorHybrid(HashedClass prototype, EPMetric metric) {
+		super(prototype, metric);
+	}
+
+	// EntitySets: overridden method for Welcome
+
+	@Override
+	protected void initializeWelcome() {
+		EntitySet forbidden = new EntitySet();
+		for (int entityId : this) {
+			CratEntity entity = entities.getEntity(entityId);
+			welcome.addAll(entity.getEntitySet());
+			forbidden.addAll(entity.getForbiddenClassmates());
+		}
+		// hybrid system: welcome must be boxed
+		welcome = welcome.boxed(entities);
+		welcome.removeAll(this);
+		welcome.addAll(externalRelatives);
+		welcome.removeAll(forbidden);
+	}
+
+	// Overridden calculation methods
+
+	@Override
+	protected double calculateClassEvaluation(EntitySet theClass, EntitySet intRelatives,
+			EntitySet extRelatives) {
+		if (PRINT_DEBUG_INFO)
+			System.out.format("\tEvaluating Class: %s\n", theClass);
+		// hybrid: all sets are sent to calculation methods unboxed
+		EntitySet unboxed = theClass.unbox(entities);
+		double innerDistancesTotal = innerDistancesTotal(unboxed, intRelatives.unbox(entities));
+		double result = innerDistancesTotal / nEntities;
+		EntitySet extRelativesUnboxed = extRelatives.unbox(entities);
+		// The EP_MOD modification
+		// (for EP is: nExternal = nEntities - unboxed.size();)
+		int nExternal = extRelativesUnboxed.size();
+		if (nExternal > 0)
+			result *= nExternal / outerDistancesTotal(unboxed, extRelativesUnboxed, nExternal);
+		if (PRINT_DEBUG_INFO)
+			System.out.format("\t\tEvaluation = %8.6f\t(EP=%8.6f)\n", result,
+					(unboxed.size() > 0) ? (result * nEntities) / unboxed.size() : 0);
+		return result;
+	}
+
+	private static final long serialVersionUID = 1L;
+
+	// Don't modify next line. Change the static value in class Preferences
+	private static final boolean PRINT_DEBUG_INFO = Preferences.PRINT_DEBUG_INFO;
+
+}
+/**
+ * 
+ */
+package gr.uom.jcaliper.metrics.ep;
+
+import gr.uom.jcaliper.explorer.CraCase;
+import gr.uom.jcaliper.preferences.Preferences;
+import gr.uom.jcaliper.system.HashedClass;
+
+/**
+ * The Entity Placement metric
+ * 
+ * @author Panagiotis Kouros
+ */
+public class EPModMetric extends EPMetric {
+
+	public EPModMetric(CraCase craCase) {
+		super(craCase);
+		shortName = "EP(mod)";
+		name = "Entity Placement (modified)";
+		// TODO to complete information
+		info = "Entity Placement metric...";
+	}
+
+	@Override
+	protected void initializeCalculator() {
+		if (craCase.isHybrid())
+			calculation = new HybricCalculation();
+		else
+			calculation = new ClassicCalculation();
+	}
+
+	// modified implements for interface ICalculationMethod
+
+	private final class ClassicCalculation implements ICalculation {
+		@Override
+		public EPCalculator getCalculator(HashedClass prototype, EPMetric metric) {
+			return new EPModCalculatorClassic(prototype, metric);
+		}
+	}
+
+	private final class HybricCalculation implements ICalculation {
+		@Override
+		public EPCalculator getCalculator(HashedClass prototype, EPMetric metric) {
+			return new EPModCalculatorHybrid(prototype, metric);
+		}
+	}
+
+	// Don't modify next line. Change the static value in class Preferences
+	protected static final boolean PRINT_DEBUG_INFO = Preferences.PRINT_DEBUG_INFO;
+
+}

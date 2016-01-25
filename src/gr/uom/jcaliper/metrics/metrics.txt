@@ -1,0 +1,403 @@
+package gr.uom.jcaliper.metrics;
+
+import gr.uom.jcaliper.system.EntitySet;
+import gr.uom.jcaliper.system.HashedClass;
+
+import java.util.TreeMap;
+
+/**
+ * @author Panagiotis Kouros
+ */
+public class EvaluatedClass extends HashedClass {
+
+	protected double evaluation;
+	protected TreeMap<Integer, Double> exitGain;
+	protected TreeMap<Integer, Double> entryGain;
+
+	public EvaluatedClass(EvaluatedClass evaluated) {
+		super(evaluated);
+		evaluation = evaluated.getEvaluation();
+		exitGain = evaluated.getExitCosts();
+		entryGain = evaluated.getEntryCosts();
+	}
+
+	public EvaluatedClass(HashedClass unevaluated) {
+		super(unevaluated);
+		hash = unevaluated.getHash();
+		exitGain = new TreeMap<Integer, Double>();
+		entryGain = new TreeMap<Integer, Double>();
+	}
+
+	public double getEvaluation() {
+		return evaluation;
+	}
+
+	/**
+	 * @param evaluation
+	 *            the evaluation to set
+	 */
+	public void setEvaluation(double evaluation) {
+		this.evaluation = evaluation;
+	}
+
+	public double getExitGain(int entityId) {
+		Double result = exitGain.get(entityId);
+		if (result != null)
+			return result;
+		return 0;
+	}
+
+	public double getEntryGain(int entityId) {
+		Double result = entryGain.get(entityId);
+		if (result != null)
+			return result;
+		return 0;
+	}
+
+	public EntitySet candidatesForExit() {
+		return new EntitySet(exitGain.keySet());
+	}
+
+	public EntitySet candidatesForEntry() {
+		return new EntitySet(entryGain.keySet());
+	}
+
+	private TreeMap<Integer, Double> getExitCosts() {
+		return exitGain;
+	}
+
+	private TreeMap<Integer, Double> getEntryCosts() {
+		return entryGain;
+	}
+
+	private static final long serialVersionUID = 1L;
+
+}
+package gr.uom.jcaliper.metrics;
+
+import java.util.Comparator;
+import java.util.TreeMap;
+import java.util.TreeSet;
+
+/**
+ * @author Panagiotis Kouros
+ */
+public class EvaluatedClassPool extends TreeMap<Long, EvaluatedClass> {
+
+	private TreeSet<EvaluatedClass> indexByEvaluation;
+
+	public EvaluatedClassPool(boolean biggerValuesAreBetter) {
+		super();
+		if (biggerValuesAreBetter)
+			indexByEvaluation = new TreeSet<EvaluatedClass>(new Descending());
+		else
+			indexByEvaluation = new TreeSet<EvaluatedClass>(new Ascending());
+	}
+
+	@Override
+	public EvaluatedClass put(Long hash, EvaluatedClass evaluated) {
+		indexByEvaluation.add(evaluated);
+		return super.put(hash, evaluated);
+	}
+
+	@Override
+	public EvaluatedClass remove(Object hash) {
+		EvaluatedClass removed = super.remove(hash);
+		indexByEvaluation.remove(removed);
+		return removed;
+	}
+
+	private class Ascending implements Comparator<EvaluatedClass> {
+		@Override
+		public int compare(EvaluatedClass evalClass1, EvaluatedClass evalClass2) {
+			double diff = evalClass1.getEvaluation() - evalClass2.getEvaluation();
+			if (diff < -1e-10)
+				return -1;
+			else if (diff > 1e-10)
+				return 1;
+			else if (evalClass1.getHash() > evalClass2.getHash())
+				return -1;
+			else if (evalClass1.getHash() < evalClass2.getHash())
+				return 1;
+			return 0;
+		}
+	}
+
+	private class Descending implements Comparator<EvaluatedClass> {
+		@Override
+		public int compare(EvaluatedClass evalClass1, EvaluatedClass evalClass2) {
+			double diff = evalClass1.getEvaluation() - evalClass2.getEvaluation();
+			if (diff > 1e-10)
+				return -1;
+			else if (diff < -1e-10)
+				return 1;
+			else if (evalClass1.getHash() > evalClass2.getHash())
+				return -1;
+			else if (evalClass1.getHash() < evalClass2.getHash())
+				return 1;
+			return 0;
+		}
+	}
+
+	public String getTopEvaluatedClasses(int howMany) {
+		StringBuilder sb = new StringBuilder();
+		sb.append(String.format("Top %d of evaluated classes\n", howMany));
+		for (EvaluatedClass cl : indexByEvaluation) {
+			if (cl.getHash() != 0) // exclude empty class
+				sb.append(String.format("Fittness value = %8.6f\t%s\n", cl.getEvaluation(), cl));
+			if (--howMany <= 0)
+				break;
+		}
+		return sb.toString();
+	}
+
+	public String getTopEvaluatedClassesWithDetails() {
+		StringBuilder sb = new StringBuilder();
+		sb.append("Evaluated classes\n");
+		for (EvaluatedClass cl : indexByEvaluation) {
+			sb.append(String.format("Fittness value = %10.8f\t%s\n", cl.getEvaluation(), cl));
+			for (int entId : cl.candidatesForExit())
+				sb.append(String.format("Exit  gain for %d = %10.8f\n", entId,
+						cl.getExitGain(entId)));
+			for (int entId : cl.candidatesForEntry())
+				sb.append(String.format("Entry gain for %d = %10.8f\n", entId,
+						cl.getEntryGain(entId)));
+		}
+		return sb.toString();
+	}
+
+	private static final long serialVersionUID = 1L;
+
+}
+/**
+ * 
+ */
+package gr.uom.jcaliper.metrics;
+
+import gr.uom.jcaliper.explorer.CraCase;
+import gr.uom.jcaliper.explorer.CratState;
+import gr.uom.jcaliper.system.EntitySet;
+import gr.uom.jcaliper.system.HashedClass;
+
+import java.util.TreeMap;
+
+/**
+ * The interface of all fitness metrics
+ * 
+ * @author Panagiotis Kouros
+ */
+public abstract class Metric {
+
+	protected String name;
+	protected String shortName;
+	protected String info;
+	protected CraCase craCase;
+
+	protected EvaluatedClassPool storedClasses;
+	protected TreeMap<Long, Double> storedValues = new TreeMap<Long, Double>();
+
+	private int valuesHits = 0;
+	private int valuesMisses = 0;
+	private int classesHits = 0;
+	private int classesMisses = 0;
+
+	public Metric(CraCase craCase) {
+		this.craCase = craCase;
+		storedClasses = new EvaluatedClassPool(toBeMaximized());
+		initializeCalculator();
+		createEvaluatedEmpty();
+		craCase.setInitial(new CratState(craCase, this));
+	}
+
+	// Methods to be overridden
+
+	public abstract boolean toBeMaximized();
+
+	protected abstract void initializeCalculator();
+
+	protected abstract double calculateClassEvaluation(HashedClass hashed);
+
+	protected abstract EvaluatedClass createEvaluatedClass(HashedClass hashed);
+
+	// Concrete public methods
+
+	public final Double evaluateClass(HashedClass hashed) {
+		long hash = hashed.getHash();
+		Double evaluation = getStoredValue(hash);
+		if (evaluation == null) {
+			evaluation = calculateClassEvaluation(hashed);
+			storedValues.put(hash, evaluation);
+		}
+		return evaluation;
+	}
+
+	public final EvaluatedClass getEvaluatedClass(HashedClass hashed) {
+		long hash = hashed.getHash();
+		if (storedClasses.containsKey(hash)) {
+			classesHits++;
+			return (storedClasses.get(hash));
+		} else {
+			classesMisses++;
+			EvaluatedClass evaluated = createEvaluatedClass(hashed);
+			storedClasses.put(hash, evaluated);
+			return evaluated;
+		}
+	}
+
+	public final Double getStoredValue(long hash) {
+		if (storedValues.containsKey(hash)) {
+			valuesHits++;
+			return storedValues.get(hash);
+		} else {
+			valuesMisses++;
+			return null;
+		}
+	}
+
+	public final void storeValue(long hash, double value) {
+		storedValues.put(hash, value);
+	}
+
+	public final void clear() {
+		if (storedValues != null)
+			storedValues.clear();
+	}
+
+	@Override
+	public void finalize() throws Throwable {
+		clear();
+		super.finalize();
+	}
+
+	// Some getters
+
+	public final String getName() {
+		return name;
+	}
+
+	public final String getShortName() {
+		return shortName;
+	}
+
+	public final String getInfo() {
+		return info;
+	}
+
+	public final CraCase getCraCase() {
+		return craCase;
+	}
+
+	// Cache memory information
+
+	public int getValueSearches() {
+		return valuesHits + valuesMisses;
+	}
+
+	public int getClassSearches() {
+		return classesHits + classesMisses;
+	}
+
+	// Cache memory presentation
+
+	public String getCacheMemoryStatistics() {
+		StringBuilder sb = new StringBuilder();
+		sb.append("\nCache memory statistics\n");
+		sb.append("-----------------------\n");
+		sb.append(getStoredClassesStatistics()).append("\n\n");
+		sb.append(getStoredValuesStatistics()).append("\n\n");
+		// sb.append(getTopEvaluatedClasses(20)).append("\n");
+		return sb.toString();
+	}
+
+	public String getStoredValuesStatistics() {
+		StringBuilder sb = new StringBuilder();
+		sb.append(String.format("Stored Evaluations: %d\n", storedValues.size()));
+		int calls = valuesHits + valuesMisses;
+		double hitsPerc = (100.0 * valuesHits) / calls;
+		double missesPerc = (100.0 * valuesMisses) / calls;
+		sb.append(String.format("%d searches: %d Hits (%4.2f%%), %d Misses (%4.2f%%)", calls,
+				valuesHits, hitsPerc, valuesMisses, missesPerc));
+		return sb.toString();
+	}
+
+	public String getStoredClassesStatistics() {
+		StringBuilder sb = new StringBuilder();
+		sb.append(String.format("Stored Classes: %d\n", storedClasses.size()));
+		int calls = classesHits + classesMisses;
+		double hitsPerc = (100.0 * classesHits) / calls;
+		double missesPerc = (100.0 * classesMisses) / calls;
+		sb.append(String.format("%d searches: %d Hits (%4.2f%%), %d Misses (%4.2f%%)", calls,
+				classesHits, hitsPerc, classesMisses, missesPerc));
+		return sb.toString();
+	}
+
+	public String getTopEvaluatedClasses(int howMany) {
+		return storedClasses.getTopEvaluatedClasses(howMany);
+	}
+
+	public String getEvaluatedClassesWithDetails() {
+		return storedClasses.getTopEvaluatedClassesWithDetails();
+	}
+
+	// private methods
+
+	private final void createEvaluatedEmpty() {
+		EvaluatedClass empty = getEvaluatedClass(new HashedClass(new EntitySet()));
+		for (int entityId : craCase.getEntitySet()) {
+			HashedClass oneMember = new HashedClass(entityId);
+			double evaluation = evaluateClass(oneMember);
+			empty.entryGain.put(entityId, evaluation);
+		}
+	}
+
+}
+package gr.uom.jcaliper.metrics;
+
+import gr.uom.jcaliper.system.HashedClass;
+
+/**
+ * @author Panagiotis Kouros
+ */
+public abstract class MetricCalculator extends EvaluatedClass {
+
+	protected final Metric metric;
+
+	protected MetricCalculator(HashedClass prototype, Metric metric) {
+		super(prototype);
+		this.metric = metric;
+	}
+
+	protected abstract void calculateClassEvaluation();
+
+	protected abstract void calculateMoveGains();
+
+	private static final long serialVersionUID = 1L;
+
+}
+package gr.uom.jcaliper.metrics;
+
+import gr.uom.jcaliper.explorer.CraCase;
+import gr.uom.jcaliper.metrics.ep.EPMetric;
+import gr.uom.jcaliper.metrics.ep.EPModMetric;
+
+/**
+ * @author Panagiotis Kouros
+ */
+public class MetricFactory {
+
+	// Supported metrics
+	public static final int EP = 1;
+	public static final int EP_MOD = 2;
+
+	public static Metric getMetric(int metricId, CraCase craCase) {
+		switch (metricId) {
+		case EP:
+			return new EPMetric(craCase);
+		case EP_MOD:
+			return new EPModMetric(craCase);
+		default:
+			return null;
+		}
+	}
+
+}

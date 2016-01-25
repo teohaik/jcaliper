@@ -1,0 +1,2145 @@
+package gr.uom.jcaliper.system;
+
+/**
+ * @author Panagiotis Kouros
+ */
+public class CratAttribute extends CratEntity {
+
+	/**
+	 * @param id
+	 * @param name
+	 * @param originClass
+	 */
+	public CratAttribute(int id, String name, SystemClass originClass) {
+		super(id, name, originClass);
+	}
+
+	@Override
+	public final boolean isAttribute() {
+		return true;
+	}
+
+	@Override
+	protected void updateMovability() {
+		/*
+		 * An attribute is "immovable" when
+		 * - belongs to a superclass
+		 * - belongs to an Interface
+		 * - is 'orphan'(= has empty entitySet and no relatives)
+		 * - is static (experimental)
+		 */
+		if (originClass.isSuperclass() || originClass.isInterface() || isOrphan() /* || isStatic() */)
+			movable = false;
+		else
+			movable = true;
+	};
+
+	@Override
+	public String propertiesToText() {
+		StringBuilder sb = new StringBuilder();
+		if (isStatic())
+			sb.append("static ");
+		sb.append("attribute");
+		if (!isMovable())
+			sb.append(" (immovable)");
+		return sb.toString();
+	}
+
+	@Override
+	public String getType() {
+		return "attribute ";
+	}
+
+	@Override
+	public void updateSimilarity() {
+		double similarity = Dice.StringSimilarity(name.toUpperCase(), originClass.getName()
+				.toUpperCase());
+		similarityToOriginClass = 5 + (10 * similarity);
+	}
+
+}
+package gr.uom.jcaliper.system;
+
+import java.util.Collection;
+import java.util.Set;
+
+/**
+ * @author Panagiotis Kouros
+ */
+public class CratClass extends EntitySet {
+
+	// Constructors
+
+	/**
+	 * 
+	 */
+	public CratClass() {
+		super();
+	}
+
+	/**
+	 * @param id
+	 */
+	public CratClass(int id) {
+		super(id);
+	}
+
+	/**
+	 * @param collection
+	 */
+	public CratClass(Collection<? extends Integer> collection) {
+		super(collection);
+	}
+
+	/**
+	 * @param array
+	 */
+	public CratClass(int[] array) {
+		super(array);
+	}
+
+	/**
+	 * @param set
+	 */
+	public CratClass(Set<? extends Integer> set) {
+		super(set);
+	}
+
+	// Methods
+
+	// Presentation
+	@Override
+	public String toString() {
+		return showIdsSet();
+	}
+
+	public String showDetails() {
+		return String.format("%-20s", showIdsSet());
+	}
+
+	private static final long serialVersionUID = 1L;
+
+}
+package gr.uom.jcaliper.system;
+
+/**
+ * @author Panagiotis Kouros
+ */
+public abstract class CratEntity {
+
+	protected int id;
+	protected String name;
+	protected EntitySet box = new EntitySet();
+	protected EntitySet entitySet = new EntitySet();
+	protected EntitySet relatives = new EntitySet();
+	protected EntitySet forbiddenClassmates = new EntitySet();
+	protected boolean movable = true;
+	protected SystemClass originClass;
+	protected int originBox;
+	protected int properties;
+	protected double similarityToOriginClass;
+
+	public CratEntity(int id, String name, SystemClass originClass) {
+		this.id = id;
+		this.name = name;
+		this.originClass = originClass;
+	}
+
+	// Methods to be overridden in subclasses
+
+	public boolean isAttribute() {
+		return false;
+	}
+
+	public boolean isMethod() {
+		return false;
+	}
+
+	protected abstract void updateMovability();
+
+	public abstract String propertiesToText();
+
+	public abstract void updateSimilarity();
+
+	// Overriden only for the methods
+
+	protected void updateForbiddenClassmates() {
+		/*
+		 * Forbidden classmates:
+		 * - all members of superclasses
+		 * - all members of subclasses
+		 * - all members of internal/external classes (experimental)
+		 * - all members of associated containers (arrays, collections, etc.)
+		 */
+		for (SystemClass superclass : originClass.getSuperclasses())
+			forbiddenClassmates.addAll(superclass);
+		for (SystemClass subclass : originClass.getSubclasses())
+			forbiddenClassmates.addAll(subclass);
+
+		if (originClass.isInternal())
+			forbiddenClassmates.addAll(originClass.getExternal());
+		if (originClass.hasInternals())
+			for (SystemClass internal : originClass.getInternals())
+				forbiddenClassmates.addAll(internal);
+
+		for (SystemClass container : originClass.getContainers())
+			forbiddenClassmates.addAll(container);
+	}
+
+	// Presentation methods
+
+	public String showBox(IEntityPool pool) {
+		return name;
+	}
+
+	@Override
+	public String toString() {
+		return name;
+	}
+
+	// Getters and Setters
+
+	/**
+	 * @return the id
+	 */
+	public int getId() {
+		return id;
+	}
+
+	/**
+	 * @param id
+	 *            the id to set
+	 */
+	public void setId(int id) {
+		this.id = id;
+	}
+
+	/**
+	 * @return the name
+	 */
+	public String getName() {
+		return name;
+	}
+
+	/**
+	 * @return the name
+	 */
+	public abstract String getType();
+
+	/**
+	 * @return the full class path
+	 */
+	public String getClassPath() {
+		return originClass.getJavaPath() + "::" + name;
+	}
+
+	public final boolean isMovable() {
+		return movable;
+	}
+
+	/**
+	 * @param movable
+	 *            the movable to set
+	 */
+	public void setMovable(boolean movable) {
+		this.movable = movable;
+	}
+
+	public final void setSynchronized(boolean flag) {
+		if (flag)
+			properties |= ENTITY_IS_SYNCHRONIZED;
+		else
+			properties &= ~ENTITY_IS_SYNCHRONIZED;
+	}
+
+	public final boolean isSynchronized() {
+		return ((properties & ENTITY_IS_SYNCHRONIZED) != 0);
+	}
+
+	public final void setAbstract(boolean flag) {
+		if (flag)
+			properties |= ENTITY_IS_ABSTRACT;
+		else
+			properties &= ~ENTITY_IS_ABSTRACT;
+	}
+
+	public final boolean isAbstractMethod() {
+		return ((properties & ENTITY_IS_ABSTRACT) != 0);
+	}
+
+	public final void setStatic(boolean flag) {
+		if (flag)
+			properties |= ENTITY_IS_STATIC;
+		else
+			properties &= ~ENTITY_IS_STATIC;
+	}
+
+	public final boolean isStatic() {
+		return ((properties & ENTITY_IS_STATIC) != 0);
+	}
+
+	public final void setConstructor(boolean flag) {
+		if (flag)
+			properties |= ENTITY_IS_CONSTRUCTOR;
+		else
+			properties &= ~ENTITY_IS_CONSTRUCTOR;
+	}
+
+	public final boolean isConstructor() {
+		return ((properties & ENTITY_IS_CONSTRUCTOR) != 0);
+	}
+
+	public final void setCallsSuperclassMethod(boolean flag) {
+		if (flag)
+			properties |= ENTITY_CALLS_SUPERCLASS_METHOD;
+		else
+			properties &= ~ENTITY_CALLS_SUPERCLASS_METHOD;
+	}
+
+	public final boolean callsSuperclassMethod() {
+		return ((properties & ENTITY_CALLS_SUPERCLASS_METHOD) != 0);
+	}
+
+	/**
+	 * @return the entitySet
+	 */
+	public EntitySet getEntitySet() {
+		return entitySet;
+	}
+
+	/**
+	 * @param entitySet
+	 *            the entitySet to set
+	 */
+	public void setEntitySet(EntitySet entitySet) {
+		this.entitySet = entitySet;
+	}
+
+	/**
+	 * @return the relatives
+	 */
+	public EntitySet getRelatives() {
+		return relatives;
+	}
+
+	/**
+	 * @param relatives
+	 *            the relatives to set
+	 */
+	public void setRelatives(EntitySet relatives) {
+		this.relatives = relatives;
+	}
+
+	/**
+	 * @return the originClass
+	 */
+	public SystemClass getOriginClass() {
+		return originClass;
+	}
+
+	/**
+	 * @param originClass
+	 *            the originClass to set
+	 */
+	public void setOriginClass(SystemClass originClass) {
+		this.originClass = originClass;
+	}
+
+	/**
+	 * @return the originBox
+	 */
+	public int getOriginBox() {
+		return originBox;
+	}
+
+	/**
+	 * @param originBox
+	 *            the originBox to set
+	 */
+	public void setOriginBox(int originBox) {
+		this.originBox = originBox;
+	}
+
+	/**
+	 * @return the forbiddenClassmates
+	 */
+	public EntitySet getForbiddenClassmates() {
+		return forbiddenClassmates;
+	}
+
+	/**
+	 * @param forbiddenClassmates
+	 *            the forbiddenClassmates to set
+	 */
+	public void setForbiddenClassmates(EntitySet forbiddenClassmates) {
+		this.forbiddenClassmates = forbiddenClassmates;
+	}
+
+	/**
+	 * @return the complex
+	 */
+	public boolean isOrphan() {
+		return (entitySet.size() == 0) && (relatives.size() == 0);
+	}
+
+	public boolean isAtom() {
+		return true;
+	}
+
+	public boolean isBox() {
+		return false;
+	}
+
+	public EntitySet getBoxElements() {
+		return box;
+	}
+
+	/**
+	 * @return the similarityToOriginClass
+	 */
+	public double getSimilarityToOriginClass() {
+		return similarityToOriginClass;
+	}
+
+	protected static final int ENTITY_IS_SYNCHRONIZED = 1 << 0;
+	protected static final int ENTITY_IS_ABSTRACT = 1 << 1;
+	protected static final int ENTITY_IS_STATIC = 1 << 2;
+	protected static final int ENTITY_IS_CONSTRUCTOR = 1 << 3;
+	protected static final int ENTITY_CALLS_SUPERCLASS_METHOD = 1 << 4;
+
+	// In future we could handle the following properties
+	// protected static final int ENTITY_IS_GETTER = 1 << 4;
+	// protected static final int ENTITY_IS_SETTER = 1 << 5;
+	// protected static final int ENTITY_IS_COLLECTION_ADDER = 1 << 6;
+	// protected static final int ENTITY_IS_DELEGATE = 1 << 7;
+
+}
+package gr.uom.jcaliper.system;
+
+/**
+ * @author Panagiotis Kouros
+ */
+public class CratMethod extends CratEntity {
+
+	/**
+	 * @param id
+	 * @param name
+	 * @param originClass
+	 */
+	public CratMethod(int id, String name, SystemClass originClass) {
+		super(id, name, originClass);
+	}
+
+	@Override
+	public boolean isMethod() {
+		return true;
+	}
+
+	@Override
+	protected void updateMovability() {
+		/*
+		 * A method is "immovable" when
+		 * - is a constructor
+		 * - calls superclass methods
+		 * - is synchronized
+		 * - is abstract
+		 * - is 'orphan'(= has empty entitySet and no relatives)
+		 * - is static (experimental)
+		 */
+		detectCallsToSuperclassMethods();
+		if (isConstructor() || callsSuperclassMethod() || isSynchronized() || isAbstractMethod()
+				|| isOrphan() /* || isStatic() */)
+			movable = false;
+		else
+			movable = true;
+	};
+
+	@Override
+	public String propertiesToText() {
+		StringBuilder sb = new StringBuilder();
+		if (isSynchronized())
+			sb.append("synchronized ");
+		if (isAbstractMethod())
+			sb.append("abstract ");
+		if (isStatic())
+			sb.append("static ");
+		if (isAttribute())
+			sb.append("attribute");
+		else if (isConstructor())
+			sb.append("constructor");
+		else
+			sb.append("method");
+		// if (isGetter())
+		// sb.append(", getter");
+		// if (isSetter())
+		// sb.append(", setter");
+		// if (isCollectionAdder())
+		// sb.append(", collection adder");
+		if (!isMovable())
+			sb.append(" (immovable)");
+		return sb.toString();
+	}
+
+	@Override
+	public String getType() {
+		return "method ";
+	}
+
+	@Override
+	public String toString() {
+		return name + "()";
+	}
+
+	@Override
+	public void updateSimilarity() {
+		double similarity = Dice.StringSimilarity(name.toUpperCase(), originClass.getName()
+				.toUpperCase());
+		similarityToOriginClass = 1 + (10 * similarity);
+	}
+
+	private void detectCallsToSuperclassMethods() {
+		boolean callFound = false;
+		SystemClass current = originClass;
+		while (current.isSubclass()) {
+			SystemClass superClass = current.getSuperclass();
+			if (superClass != null) {
+				EntitySet common = entitySet.intersection(superClass);
+				callFound = (common.size() > 0);
+				if (callFound)
+					break;
+				current = superClass;
+			} else
+				break;
+		}
+		setCallsSuperclassMethod(callFound);
+	}
+
+}
+package gr.uom.jcaliper.system;
+
+import java.util.TreeMap;
+
+/**
+ * @author Panagiotis Kouros
+ */
+public class CratPackage extends TreeMap<Integer, SystemClass> {
+
+	private int id;
+	private String name;
+	private CratSystem system;
+
+	/**
+	 * @param name
+	 */
+	public CratPackage(int id, String name) {
+		super();
+		this.id = id;
+		this.name = name;
+	}
+
+	/**
+	 * @return the id
+	 */
+	public int getId() {
+		return id;
+	}
+
+	/**
+	 * @param id
+	 *            the id to set
+	 */
+	public void setId(int id) {
+		this.id = id;
+	}
+
+	/**
+	 * @return the name
+	 */
+	public String getName() {
+		return name;
+	}
+
+	/**
+	 * @param name
+	 *            the name to set
+	 */
+	public void setName(String name) {
+		this.name = name;
+	}
+
+	/**
+	 * @return the craCase
+	 */
+	public CratSystem getSystem() {
+		return system;
+	}
+
+	/**
+	 * @param craCase
+	 *            the craCase to set
+	 */
+	public void setSystem(CratSystem system) {
+		this.system = system;
+	}
+
+	private static final long serialVersionUID = 1L;
+}
+package gr.uom.jcaliper.system;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.TreeMap;
+
+/**
+ * @author Panagiotis Kouros
+ */
+public class CratSystem implements IEntityPool {
+
+	private String name;
+	private int systemType;
+	private TreeMap<Integer, CratPackage> packages = new TreeMap<Integer, CratPackage>();
+	// unboxed system
+	private TreeMap<Integer, SystemClass> classes = new TreeMap<Integer, SystemClass>();
+	private TreeMap<Integer, CratEntity> entities = new TreeMap<Integer, CratEntity>();
+	private EntitySet systemEntities;
+	// boxed system
+	private TreeMap<Integer, CratClass> boxedClasses = new TreeMap<Integer, CratClass>();
+	private TreeMap<Integer, CratEntity> boxedEntities;
+	private EntitySet boxedSystemEntities;
+
+	/**
+	 * @param name
+	 * @param systemType
+	 */
+	public CratSystem(String name, int systemType) {
+		super();
+		this.name = name;
+		this.systemType = systemType;
+	}
+
+	public void addSystemClass(SystemClass newClass) {
+		classes.put(newClass.getId(), newClass);
+		newClass.updateHash();
+	}
+
+	public SystemClass getSystemClass(int classId) {
+		return classes.get(classId);
+	}
+
+	public void addEntity(CratEntity entity) {
+		entities.put(entity.getId(), entity);
+	}
+
+	@Override
+	public EntitySet getEntitySet() {
+		return systemEntities;
+	}
+
+	public EntitySet getBoxedEntitySet() {
+		return boxedSystemEntities;
+	}
+
+	@Override
+	public CratEntity getEntity(int entityId) {
+		return entities.get(entityId);
+	}
+
+	public void updateDataStructures() {
+		// Update packages
+		for (CratPackage pkg : packages.values())
+			pkg.setSystem(this);
+		// Update classes
+		for (SystemClass cl : classes.values()) {
+			cl.setEntities(this);
+			cl.updateTargetability();
+			cl.updateHash();
+		}
+		// Update entities
+		for (CratEntity e : entities.values()) {
+			int entityId = e.getId();
+			e.box.add(entityId);
+			e.originBox = entityId;
+			e.getEntitySet().remove(entityId); // ignore recursion
+			// update relatives
+			for (int rel : e.getEntitySet())
+				entities.get(rel).getRelatives().add(entityId);
+			e.updateForbiddenClassmates();
+			e.updateMovability();
+			e.updateSimilarity();
+		}
+		// get active entities of unboxed system
+		systemEntities = new EntitySet(entities.keySet());
+		// Update forbidden classmates for non-target classes
+		reupdateForbiddenClassmates();
+		// Create data structures for boxed system
+		initializeBoxedStructures();
+	}
+
+	private void reupdateForbiddenClassmates() {
+		EntitySet nonTargetElements = new EntitySet();
+		for (SystemClass sysCl : classes.values())
+			if (!sysCl.isTarget())
+				nonTargetElements.addAll(sysCl);
+		for (SystemClass sysCl : classes.values())
+			if (!sysCl.isTarget()) {
+				EntitySet forbidden = systemEntities.difference(sysCl);
+				for (int entId : sysCl)
+					getEntity(entId).getForbiddenClassmates().addAll(forbidden);
+			} else
+				for (int entId : sysCl) {
+					CratEntity entity = getEntity(entId);
+					for (int forbId : entity.getForbiddenClassmates()) {
+						CratEntity forbiddenEntity = getEntity(forbId);
+						forbiddenEntity.getForbiddenClassmates().add(entId);
+					}
+					EntitySet forbiddenSet = nonTargetElements.intersection(entity.getEntitySet());
+					EntitySet forbiddenRel = nonTargetElements.intersection(entity.getRelatives());
+					entity.getForbiddenClassmates().addAll(forbiddenSet);
+					entity.getForbiddenClassmates().addAll(forbiddenRel);
+				}
+	}
+
+	// Methods for boxed entities and classes
+
+	private void initializeBoxedStructures() {
+		// Get all entity boxes
+		ArrayList<EntityBox> boxes = new ArrayList<EntityBox>();
+		int entId = entities.size() + 1; // first available id
+		for (CratEntity entity : entities.values())
+			if (canBeAlteredToBox(entity)) {
+				EntityBox boxed = createBoxedEntity(entId, entity);
+				boxes.add(boxed);
+				entId++;
+			}
+		// Add entity boxes to entities and update originBox properties
+		for (EntityBox entity : boxes) {
+			int boxId = entity.getId();
+			entities.put(boxId, entity);
+			entity.originBox = boxId;
+			for (int elemId : entity.box)
+				getEntity(elemId).originBox = boxId;
+		}
+		// initialize boxed classes
+		for (SystemClass sysCl : classes.values())
+			boxedClasses.put(sysCl.getId(), new CratClass(sysCl.boxed(this)));
+		// create boxed entities collection
+		boxedEntities = deepCopyOfEntities(entities.values());
+		// get active entities of unboxed system
+		boxedSystemEntities = new EntitySet(entities.keySet());
+		boxedSystemEntities = boxedSystemEntities.boxed(this);
+		// reupdate all entity sets to be 'boxed'
+		for (CratEntity entity : boxedEntities.values()) {
+			entity.entitySet = entity.entitySet.boxed(this);
+			entity.relatives = entity.relatives.boxed(this);
+			entity.forbiddenClassmates = entity.forbiddenClassmates.boxed(this);
+		}
+		// remove entity from its entity set
+		for (CratEntity entity : boxedEntities.values())
+			entity.entitySet.remove(entity.id);
+	}
+
+	private TreeMap<Integer, CratEntity> deepCopyOfEntities(Collection<CratEntity> prototypes) {
+		TreeMap<Integer, CratEntity> deepCopy = new TreeMap<Integer, CratEntity>();
+		CratEntity clone;
+		for (CratEntity prototype : prototypes) {
+			if (prototype.isMethod())
+				clone = new CratMethod(prototype.id, prototype.name, prototype.originClass);
+			else if (prototype.isBox())
+				clone = new EntityBox(prototype.id, prototype.name, prototype.originClass);
+			else
+				clone = new CratAttribute(prototype.id, prototype.name, prototype.originClass);
+			clone.box = new EntitySet(prototype.box);
+			clone.entitySet = new EntitySet(prototype.entitySet);
+			clone.relatives = new EntitySet(prototype.relatives);
+			clone.forbiddenClassmates = new EntitySet(prototype.forbiddenClassmates);
+			clone.movable = prototype.movable;
+			clone.originBox = prototype.originBox;
+			clone.properties = prototype.properties;
+			clone.similarityToOriginClass = prototype.similarityToOriginClass;
+			deepCopy.put(clone.id, clone);
+		}
+		return deepCopy;
+	}
+
+	private EntityBox createBoxedEntity(int newId, CratEntity entity) {
+		EntitySet box = new EntitySet(entity.box);
+		EntitySet boxRelatives = new EntitySet(entity.relatives);
+		EntitySet boxForbidden = new EntitySet(entity.forbiddenClassmates);
+		boolean boxIsMovable = entity.isMovable();
+		double similarityToOriginClass = 0.0;
+		// add box members
+		SystemClass origin = entity.originClass;
+		EntitySet candidateMembers = origin.intersection(entity.entitySet);
+		// iterate while finding new members
+		boolean foundNewMembers;
+		do {
+			foundNewMembers = false;
+			for (int candId : candidateMembers) {
+				CratEntity candEntity = getEntity(candId);
+				EntitySet candEntitySet = candEntity.entitySet;
+				if (box.containsAll(candEntitySet)) {
+					foundNewMembers = true;
+					box.add(candId);
+					boxRelatives.addAll(candEntity.relatives);
+					boxForbidden.addAll(candEntity.forbiddenClassmates);
+					boxIsMovable &= candEntity.isMovable();
+					similarityToOriginClass += candEntity.similarityToOriginClass;
+				}
+			}
+			candidateMembers.removeAll(box);
+		} while (foundNewMembers);
+
+		// create the new box entity instance
+		String boxName = String.format("%s+", entity.getName());
+		EntityBox boxedEntity = new EntityBox(newId, boxName, entity.originClass);
+		boxedEntity.box = box;
+		boxedEntity.entitySet = new EntitySet(entity.entitySet);
+		boxedEntity.entitySet.add(entity.id);
+		boxedEntity.relatives = boxRelatives;
+		boxedEntity.forbiddenClassmates = boxForbidden;
+		boxedEntity.movable = boxIsMovable;
+		boxedEntity.similarityToOriginClass = similarityToOriginClass;
+		return boxedEntity;
+	}
+
+	private boolean canBeAlteredToBox(CratEntity entity) {
+		if (entity.isMethod())
+			return false;
+		// search for candidate box members
+		SystemClass origin = entity.originClass;
+		EntitySet candidateMembers = origin.intersection(entity.entitySet);
+		for (int candId : candidateMembers) {
+			CratEntity candEntity = getEntity(candId);
+			EntitySet candEntitySet = candEntity.entitySet;
+			if ((candEntitySet.size() == 1) && candEntitySet.contains(entity.id))
+				return true;
+		}
+		return false;
+	}
+
+	// Various presentation methods
+
+	public String getEntitySetsDetails() {
+		StringBuilder sb = new StringBuilder();
+		for (CratEntity e : entities.values()) {
+			sb.append(String.format("%s: %s\n", e.getName(), e.propertiesToText()));
+			sb.append(String.format("S(%d)=%-20s\tS(%s)=%s\n", e.getId(), e.getEntitySet(),
+					e.getName(), e.getEntitySet().showNamesSet(this)));
+			sb.append(String.format("R(%d)=%-20s\tR(%s)=%s\n", e.getId(), e.getRelatives(),
+					e.getName(), e.getRelatives().showNamesSet(this)));
+		}
+		if (sb.length() > 0)
+			sb.setLength(sb.length() - 1); // remove last newline
+		return sb.toString();
+	}
+
+	public String getClassSetsDetails() {
+		StringBuilder sb = new StringBuilder();
+		for (SystemClass c : classes.values()) {
+			sb.append(String.format("%s: %s %s\n", c.getName(), c.getJavaPath(),
+					c.propertiesToText()));
+			// sb.append(String.format("Hash code: %d\n", c.longHashCode()));
+			sb.append(String.format("S(%d)=%-20s\tS(%s)=%s\n", c.getId(), c, c.getName(),
+					c.showNamesSet(this)));
+		}
+		if (sb.length() > 0)
+			sb.setLength(sb.length() - 1); // remove last newline
+		return sb.toString();
+	}
+
+	public String getPackagesDetails() {
+		StringBuilder sb = new StringBuilder();
+		for (CratPackage pkg : packages.values())
+			sb.append(String.format("%s: %s \n", pkg.getName(), pkg));
+		if (sb.length() > 0)
+			sb.setLength(sb.length() - 1); // remove last newline
+		return sb.toString();
+	}
+
+	public String getPresentation() {
+		StringBuilder sb = new StringBuilder();
+		sb.append(systemTypeName()).append(name);
+		sb.append(String.format("\n\nPackages\n%s\n", getPackagesDetails()));
+		sb.append(String.format("\nClass Sets\n%s\n", getClassSetsDetails()));
+		sb.append(String.format("\nEntity Sets\n%s\n", getEntitySetsDetails()));
+		sb.append(String.format("\n%s", getTinyPresentation()));
+		return sb.toString();
+	}
+
+	public String getTinyPresentation() {
+		StringBuilder sb = new StringBuilder();
+		sb.append(systemTypeName()).append(name);
+		sb.append(String.format("\n%d entities ", getTotalEntities()));
+		sb.append(String.format("(%d attributes + ", howManyAttributes()));
+		sb.append(String.format("%d methods) ", howManyMethods()));
+		sb.append(String.format("in %d classes, ", classes.size()));
+		sb.append(String.format("%d packages", packages.size()));
+		return sb.toString();
+	}
+
+	// Setters and getters
+
+	private int howManyMethods() {
+		int numOfMethods = 0;
+		for (int entId : systemEntities)
+			if (getEntity(entId).isMethod())
+				numOfMethods++;
+		return numOfMethods;
+	}
+
+	private int howManyAttributes() {
+		int numOfAttrib = 0;
+		for (int entId : systemEntities)
+			if (getEntity(entId).isAttribute())
+				numOfAttrib++;
+		return numOfAttrib;
+	}
+
+	/**
+	 * @return the name
+	 */
+	public String getName() {
+		return name;
+	}
+
+	/**
+	 * @return the name
+	 */
+	public String getFullName() {
+		return systemTypeName() + name;
+	}
+
+	/**
+	 * @param name
+	 *            the name to set
+	 */
+	public void setName(String name) {
+		this.name = name;
+	}
+
+	/**
+	 * @return the systemType
+	 */
+	public int getSystemType() {
+		return systemType;
+	}
+
+	/**
+	 * @param systemType
+	 *            the systemType to set
+	 */
+	public void setSystemType(int systemType) {
+		this.systemType = systemType;
+	}
+
+	@Override
+	public int getTotalEntities() {
+		return systemEntities.size();
+	}
+
+	public int getTotalBoxedEntities() {
+		return boxedSystemEntities.size();
+	}
+
+	public TreeMap<Integer, CratEntity> getEntities() {
+		return entities;
+	}
+
+	public TreeMap<Integer, CratEntity> getBoxedEntities() {
+		return boxedEntities;
+	}
+
+	public TreeMap<Integer, CratEntity> getHybridEntities() {
+		TreeMap<Integer, CratEntity> hybridEntities = deepCopyOfEntities(boxedEntities.values());
+		for (CratEntity entity : hybridEntities.values())
+			entity.entitySet = getEntity(entity.id).entitySet;
+		return hybridEntities;
+	}
+
+	/**
+	 * @param entities
+	 *            the entities to set
+	 */
+	public void setEntities(TreeMap<Integer, CratEntity> entities) {
+		this.entities = entities;
+	}
+
+	/**
+	 * @return the classes
+	 */
+	public TreeMap<Integer, SystemClass> getClasses() {
+		return classes;
+	}
+
+	public TreeMap<Integer, CratClass> getBoxedClasses() {
+		return boxedClasses;
+	}
+
+	/**
+	 * @param classes
+	 *            the classes to set
+	 */
+	public void setClasses(TreeMap<Integer, SystemClass> classes) {
+		this.classes = classes;
+	}
+
+	/**
+	 * @param packages
+	 *            the packages to set
+	 */
+	public void setPackages(TreeMap<Integer, CratPackage> packages) {
+		this.packages = packages;
+	}
+
+	/**
+	 * @return the packages
+	 */
+	public TreeMap<Integer, CratPackage> getPackages() {
+		return packages;
+	}
+
+	private String systemTypeName() {
+		if (systemType == SYSTEM_PROJECT)
+			return "project ";
+		if (systemType == SYSTEM_PACKAGE)
+			return "package ";
+		return "";
+	}
+
+	// System Types
+	public static final int SYSTEM_PROJECT = 0;
+	public static final int SYSTEM_PACKAGE = 1;
+
+}
+package gr.uom.jcaliper.system;
+
+import gr.uom.jcaliper.loggers.ActivityLogger;
+import gr.uom.java.ast.ASTReader;
+import gr.uom.java.ast.ClassObject;
+import gr.uom.java.ast.CompilationUnitCache;
+import gr.uom.java.ast.FieldObject;
+import gr.uom.java.ast.MethodObject;
+import gr.uom.java.ast.SystemObject;
+import gr.uom.java.ast.association.Association;
+import gr.uom.java.distance.MyAttribute;
+import gr.uom.java.distance.MyClass;
+import gr.uom.java.distance.MyMethod;
+import gr.uom.java.distance.MySystem;
+
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.ListIterator;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import org.eclipse.jdt.core.IJavaProject;
+import org.eclipse.jdt.core.IPackageFragment;
+
+/**
+ * @author Panagiotis Kouros
+ */
+public class CratSystemCreator {
+
+	private IJavaProject selectedProject;
+	private IPackageFragment selectedPackage;
+
+	// new
+	private String systemName;
+	private int systemType;
+	private Logger activityLogger;
+	private TreeMap<Integer, CratEntity> entities = new TreeMap<Integer, CratEntity>();
+	private TreeMap<Integer, SystemClass> classes = new TreeMap<Integer, SystemClass>();
+	private TreeMap<Integer, CratPackage> packages = new TreeMap<Integer, CratPackage>();
+
+	private TreeMap<Integer, String> superclass = new TreeMap<Integer, String>();
+	private TreeMap<Integer, Set<String>> superclasses = new TreeMap<Integer, Set<String>>();
+	private TreeMap<Integer, Set<String>> containers = new TreeMap<Integer, Set<String>>();
+
+	private TreeMap<String, CratPackage> packageIndex = new TreeMap<String, CratPackage>();
+
+	private TreeMap<String, SystemClass> classIndex = new TreeMap<String, SystemClass>();
+	private TreeMap<Integer, Set<String>> classSets = new TreeMap<Integer, Set<String>>();
+	private TreeMap<String, Integer> entityIndex = new TreeMap<String, Integer>();
+	private TreeMap<Integer, String> entityUniqueNames = new TreeMap<Integer, String>();
+	private TreeMap<Integer, Set<String>> entitySets = new TreeMap<Integer, Set<String>>();
+
+	public CratSystemCreator(IJavaProject selectedProject, IPackageFragment selectedPackage) {
+		super();
+		this.selectedProject = selectedProject;
+		this.selectedPackage = selectedPackage;
+		activityLogger = ActivityLogger.getInstance().getLogger();
+	}
+
+	public CratSystem getCratSystem() {
+		info("-----------------------------------------------------\n");
+		info(((selectedPackage != null) ? "package " + selectedPackage.getElementName()
+				: "project " + selectedProject.getElementName()) + "\n");
+		info("-----------------------------------------------------\n");
+		info(String.format("\nPlease wait while analyzing the selected %s...",
+				(selectedPackage != null) ? "package" : "project"));
+		getDataFromAST();
+		info("Done.\nPreparing data structures...");
+		removeOrphanEntities();
+		reindexEntities();
+
+		// Completing class information
+		for (SystemClass sysClass : classIndex.values()) {
+			int classId = sysClass.getId();
+			// Updating superclass/subclass info
+			String superClassName = superclass.get(classId);
+			if (superClassName != null) {
+				SystemClass superClass = classIndex.get(superClassName);
+				sysClass.setSuperclass(superClass);
+				if (superClass != null)
+					superClass.getSubclasses().add(sysClass);
+			}
+			Set<String> supers = superclasses.get(classId);
+			for (String supName : supers)
+				if (supName != null) {
+					SystemClass supClass = classIndex.get(supName);
+					if (supClass != null) {
+						sysClass.getSuperclasses().add(supClass);
+						supClass.getSubclasses().add(sysClass);
+					}
+				}
+			// Updating containers
+			Set<String> contNames = containers.get(classId);
+			for (String contName : contNames)
+				if (contName != null) {
+					SystemClass contClass = classIndex.get(contName);
+					if (contClass != null)
+						sysClass.getContainers().add(contClass);
+				}
+
+			// Updating entity set
+			Set<String> namesSet = classSets.get(sysClass.getId());
+			for (String entName : namesSet)
+				sysClass.add(entityIndex.get(entName));
+		}
+
+		// Identifying internal classes and packages
+		int packageId = 1;
+		for (SystemClass sysClass : classIndex.values()) {
+			String pathName = getPathName(sysClass.getJavaPath());
+			SystemClass externalClass = classIndex.get(pathName);
+			if (externalClass != null) { // sysClass is internal
+				sysClass.setExternal(externalClass);
+				externalClass.getInternals().add(sysClass);
+			} else {
+				CratPackage mypackage = packageIndex.get(pathName);
+				if (mypackage == null) {
+					mypackage = new CratPackage(packageId, pathName);
+					packages.put(packageId, mypackage);
+					packageIndex.put(pathName, mypackage);
+					packageId++;
+				}
+				sysClass.setPackage(mypackage);
+				mypackage.put(sysClass.getId(), sysClass);
+			}
+		}
+
+		// Updating internal classes and packages
+		for (SystemClass cl : classes.values())
+			if (cl.isInternal()) {
+				CratPackage mypackage = cl.getExternal().getPackage();
+				mypackage.put(cl.getId(), cl);
+				cl.setPackage(mypackage);
+			}
+
+		// Completing entity information
+		for (CratEntity entity : entities.values()) {
+			Set<String> namesSet = entitySets.get(entity.getId());
+			for (String entName : namesSet)
+				if (entityIndex.containsKey(entName))
+					entity.getEntitySet().add(entityIndex.get(entName));
+			// else
+			// System.err.format("WARNING: unexpected name '%s'\n", entName);
+		}
+
+		// Creating craSystem
+		CratSystem system = new CratSystem(systemName, systemType);
+		system.setPackages(packages);
+		system.setClasses(classes);
+		system.setEntities(entities);
+		system.updateDataStructures();
+		info("Done.\nBuilding protected model...\n\n");
+		return system;
+	}
+
+	private String getTinyName(String fullName) {
+		// Try to find last period
+		int pos = fullName.lastIndexOf(".");
+		if (pos < 0)
+			return fullName;
+		else
+			return fullName.substring(pos + 1);
+	}
+
+	private String getPathName(String fullName) {
+		// Try to find last period
+		int pos = fullName.lastIndexOf(".");
+		if (pos < 0)
+			return "";
+		else
+			return fullName.substring(0, pos);
+	}
+
+	public void getDataFromAST() {
+		CompilationUnitCache.getInstance().clearCache();
+		if (selectedPackage != null) {
+			new ASTReader(selectedPackage);
+			systemType = CratSystem.SYSTEM_PACKAGE;
+			systemName = selectedPackage.getElementName();
+		} else {
+			new ASTReader(selectedProject);
+			systemType = CratSystem.SYSTEM_PROJECT;
+			systemName = selectedProject.getElementName();
+		}
+
+		// Useful maps to rescan System Classes by lexicographical order
+		TreeMap<String, MyClass> myClassMap = new TreeMap<String, MyClass>();
+		TreeMap<String, ClassObject> classObjectMap = new TreeMap<String, ClassObject>();
+
+		SystemObject systemObject = ASTReader.getSystemObject();
+		MySystem mySystem = new MySystem(systemObject);
+
+		// First scan to get only class names and AST classes
+		Iterator<MyClass> classIt = mySystem.getClassIterator();
+		while (classIt.hasNext()) {
+			MyClass myClass = classIt.next();
+			String className = myClass.getName();
+			SystemClass sysClass = new SystemClass(0, getTinyName(className), className);
+			classIndex.put(className, sysClass);
+			myClassMap.put(className, myClass);
+			classObjectMap.put(className, myClass.getClassObject());
+		}
+
+		// Main scan
+		int classId = 1, entityId = 1;
+		for (SystemClass sysClass : classIndex.values()) {
+			sysClass.setId(classId);
+			String className = sysClass.getJavaPath();
+			MyClass myClass = myClassMap.get(className);
+			ClassObject co = classObjectMap.get(className);
+			classes.put(classId, sysClass);
+			classIndex.put(className, sysClass);
+			sysClass.setStatic(co.isStatic());
+			sysClass.setAbstract(co.isAbstract());
+			sysClass.setInterface(co.isInterface());
+			// Some class data are stored to be used later
+			HashSet<String> supers = new HashSet<String>();
+			ListIterator<String> superClassIterator = co.getSuperclassIterator();
+			while (superClassIterator.hasNext())
+				supers.add(superClassIterator.next());
+			superclasses.put(classId, supers);
+			superclass.put(classId, myClass.getSuperclass());
+			HashSet<String> contAssociations = new HashSet<String>();
+			for (Association association : mySystem.getAssociationsOfClass(co))
+				if (association.isContainer())
+					contAssociations.add(association.getTo());
+			containers.put(classId, contAssociations);
+			classSets.put(classId, myClass.getEntitySet());
+
+			// Get entities: attributes
+			ListIterator<MyAttribute> attributeIterator = myClass.getAttributeIterator();
+			while (attributeIterator.hasNext()) {
+				MyAttribute myAttribute = attributeIterator.next();
+				String entityName = myAttribute.getName();
+				CratAttribute sysAttrib = new CratAttribute(entityId, entityName, sysClass);
+				// info(String.format("%s %B\n", myAttribute,myAttribute.isReference()));
+				if (!myAttribute.isReference()) {
+					sysClass.add(entityId);
+					entities.put(entityId, sysAttrib);
+					// Some attribute data are stored to be used later
+					String uniqueName = myAttribute.toString();
+					entityIndex.put(uniqueName, entityId);
+					entityUniqueNames.put(entityId, uniqueName);
+					entitySets.put(entityId, myAttribute.getEntitySet());
+					entityId++;
+				}
+			}
+			ListIterator<FieldObject> fieldIterator = co.getFieldIterator();
+			while (fieldIterator.hasNext()) {
+				FieldObject fo = fieldIterator.next();
+				String fullName = fo.getClassName() + "::" + fo.getType() + " " + fo.getName();
+				// info(fullName+"\n");
+				if (entityIndex.containsKey(fullName)) {
+					int entId = entityIndex.get(fullName);
+					CratEntity entity = entities.get(entId);
+					entity.setStatic(fo.isStatic());
+					// TODO get more information
+				}
+			}
+
+			// Get entities: methods
+			ListIterator<MyMethod> methodIterator = myClass.getMethodIterator();
+			while (methodIterator.hasNext()) {
+				MyMethod myMethod = methodIterator.next();
+				MethodObject mo = myMethod.getMethodObject();
+				String entityName = mo.getName();
+				CratMethod sysMethod = new CratMethod(entityId, entityName, sysClass);
+				// String fullName = mo.getClassName() + "::" + mo.getAccess() + " " + mo.getName();
+				// info(fullName+"\n");
+				sysClass.add(entityId);
+				entities.put(entityId, sysMethod);
+				if (myMethod.getMethodName().equals(getTinyName(myClass.getName())))
+					sysMethod.setConstructor(true);
+				sysMethod.setAbstract(myMethod.isAbstract());
+				sysMethod.setSynchronized(mo.isSynchronized());
+				sysMethod.setStatic(mo.isStatic());
+				// Some method data are stored for later use
+				String uniqueName = myMethod.toString();
+				entityIndex.put(uniqueName, entityId);
+				entityUniqueNames.put(entityId, uniqueName);
+				entitySets.put(entityId, myMethod.getEntitySet());
+				entityId++;
+			}
+			classId++;
+		}
+	}
+
+	void removeOrphanEntities() {
+		// Find entities with empty sets
+		// that are not members of other sets
+		Set<String> haveEmptySet = new HashSet<String>();
+		Set<String> areSetMembers = new HashSet<String>();
+		for (String entityName : entityIndex.keySet()) {
+			int entityId = entityIndex.get(entityName);
+			Set<String> entitySet = entitySets.get(entityId);
+			if (entitySet.size() == 0)
+				haveEmptySet.add(entityName);
+			areSetMembers.addAll(entitySet);
+		}
+		Set<String> orphans = haveEmptySet;
+		orphans.removeAll(areSetMembers); // exclude set members
+		// Delete orphans from all data structures
+		// info("Orphans:" + orphans + "\n");
+		for (String entityName : orphans) {
+			int entityId = entityIndex.get(entityName);
+			CratEntity entity = entities.get(entityId);
+			entity.getOriginClass().remove(entityId);
+			entities.remove(entityId);
+			entitySets.remove(entityId);
+			entityIndex.remove(entityName);
+		}
+		for (Set<String> classSet : classSets.values())
+			classSet.removeAll(orphans);
+
+		for (Set<String> entitySet : entitySets.values())
+			entitySet.removeAll(orphans);
+	}
+
+	void reindexEntities() {
+		TreeMap<Integer, CratEntity> newEntities = new TreeMap<Integer, CratEntity>();
+		TreeMap<String, Integer> newEntityIndex = new TreeMap<String, Integer>();
+		TreeMap<Integer, Set<String>> newEntitySets = new TreeMap<Integer, Set<String>>();
+		int newId = 1;
+		for (Map.Entry<Integer, CratEntity> entry : entities.entrySet()) {
+			int oldId = entry.getKey();
+			CratEntity entity = entry.getValue();
+			String entityName = entityUniqueNames.get(oldId);
+			Set<String> entitySet = entitySets.get(oldId);
+			entity.setId(newId);
+			newEntities.put(newId, entity);
+			newEntityIndex.put(entityName, newId);
+			newEntitySets.put(newId, entitySet);
+			SystemClass origin = entity.getOriginClass();
+			origin.remove(oldId);
+			origin.add(newId);
+			newId++;
+		}
+		entities = newEntities;
+		entityIndex = newEntityIndex;
+		entitySets = newEntitySets;
+	}
+
+	private void info(String message) {
+		activityLogger.log(Level.INFO, message);
+	}
+
+}
+/**
+ * 
+ */
+package gr.uom.jcaliper.system;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Calculate the Dice's similarity coefficient between two strings
+ * from: www.codeproject.com/Articles/147230/Simple-Fuzzy-String-Similarity-in-Java
+ * 
+ * @author Panagiotis Kouros
+ */
+public class Dice {
+
+	public static final double StringSimilarity(String s1, String s2) {
+		return dice(bigram(s1), bigram(s2));
+	}
+
+	private static final List<char[]> bigram(String input) {
+		ArrayList<char[]> bigram = new ArrayList<char[]>();
+		for (int i = 0; i < input.length() - 1; i++) {
+			char[] chars = new char[2];
+			chars[0] = input.charAt(i);
+			chars[1] = input.charAt(i + 1);
+			bigram.add(chars);
+		}
+		return bigram;
+	}
+
+	private static final double dice(List<char[]> bigram1, List<char[]> bigram2) {
+		if ((bigram1.size() + bigram2.size()) == 0)
+			return 0.0;
+		List<char[]> copy = new ArrayList<char[]>(bigram2);
+		int matches = 0;
+		for (int i = bigram1.size(); --i >= 0;) {
+			char[] bigram = bigram1.get(i);
+			for (int j = copy.size(); --j >= 0;) {
+				char[] toMatch = copy.get(j);
+				if (bigram[0] == toMatch[0] && bigram[1] == toMatch[1]) {
+					copy.remove(j);
+					matches += 2;
+					break;
+				}
+			}
+		}
+		return (double) matches / (bigram1.size() + bigram2.size());
+	}
+}
+package gr.uom.jcaliper.system;
+
+/**
+ * @author Panagiotis Kouros
+ */
+public class EntityBox extends CratAttribute {
+
+	public EntityBox(int id, String name, SystemClass originClass) {
+		super(id, name, originClass);
+	}
+
+	@Override
+	public String showBox(IEntityPool pool) {
+		return name + "(" + box.showNamesUnboxed(pool) + ")";
+	}
+
+	@Override
+	public final boolean isAtom() {
+		return false;
+	}
+
+	@Override
+	public final boolean isBox() {
+		return true;
+	}
+
+}
+package gr.uom.jcaliper.system;
+
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.Set;
+import java.util.TreeSet;
+
+/**
+ * Set of entity IDs
+ * 
+ * @author Panagiotis Kouros
+ */
+public class EntitySet extends TreeSet<Integer> implements Comparable<EntitySet> {
+
+	// Constructors
+
+	/**
+	 * Creates an empty set of entity IDs
+	 */
+	public EntitySet() {
+		super();
+	}
+
+	/**
+	 * Creates a new set of entity IDs with only one element
+	 */
+	public EntitySet(int id) {
+		super();
+		add(id);
+	}
+
+	/**
+	 * Creates a new entity set from any collection of entity IDs
+	 * 
+	 * @param collection
+	 *            a collection of entity IDs
+	 */
+	public EntitySet(Collection<? extends Integer> collection) {
+		super(collection);
+	}
+
+	/**
+	 * Creates a new entity set from any set of entity IDs
+	 * 
+	 * @param set
+	 *            a set of entity IDs
+	 */
+	public EntitySet(Set<? extends Integer> set) {
+		super(set);
+	}
+
+	/**
+	 * Creates a new entity set from any array of entity IDs
+	 * 
+	 * @param set
+	 *            an array of entity IDs
+	 */
+	public EntitySet(int[] array) {
+		super();
+		for (int id : array)
+			add(id);
+	}
+
+	// Methods
+
+	@Override
+	public EntitySet clone() {
+		return (EntitySet) super.clone(); // a shallow copy
+	}
+
+	/**
+	 * @return string of all entity IDs separated by comma
+	 */
+	public String signature() {
+		if (size() == 0)
+			return "";
+		StringBuilder sb = new StringBuilder(size() << 2); // 4*size()
+		for (int e : this)
+			sb.append(e).append(',');
+		sb.setLength(sb.length() - 1); // delete last comma
+		return sb.toString();
+	}
+
+	public EntitySet unbox(IEntityPool pool) {
+		EntitySet unboxed = new EntitySet();
+		for (int id : this)
+			unboxed.addAll(pool.getEntity(id).getBoxElements());
+		return unboxed;
+	}
+
+	public EntitySet boxed(IEntityPool pool) {
+		EntitySet boxed = new EntitySet();
+		for (int id : this)
+			boxed.add(pool.getEntity(id).getOriginBox());
+		return boxed;
+	}
+
+	public void addAll(int[] array) {
+		for (int id : array)
+			add(id);
+	}
+
+	// Presentation with IDs
+
+	/**
+	 * @return string of all entity IDs separated by comma
+	 */
+	public String showIds() {
+		return signature();
+	}
+
+	/**
+	 * @return a presentation of entity IDs set
+	 */
+	public String showIdsSet() {
+		return "{" + signature() + "}";
+	}
+
+	/**
+	 * @param pool
+	 *            reference collection to get entity details from
+	 * @return string of all box-entity IDs separated by comma
+	 */
+	public String showIdsUnboxed(IEntityPool pool) {
+		return unbox(pool).signature();
+	}
+
+	/**
+	 * @param pool
+	 *            reference collection to get entity details from
+	 * @return a presentation of box-entities IDs set
+	 */
+	public String showIdsSetUnboxed(IEntityPool pool) {
+		return "{" + showIdsUnboxed(pool) + "}";
+	}
+
+	@Override
+	public String toString() {
+		return "{" + signature() + "}";
+	}
+
+	// Presentation with entity names
+
+	/**
+	 * @param pool
+	 *            reference collection to get entity details from
+	 * @return string of all entity names separated by comma
+	 */
+	public String showNames(IEntityPool pool) {
+		if (size() == 0)
+			return "";
+		StringBuilder sb = new StringBuilder(size() << 4); // 16 * size
+		// show in order: attributes, constructors, methods
+		for (int id : this) {
+			CratEntity entity = pool.getEntity(id);
+			if (entity.isAttribute())
+				sb.append(entity).append(',');
+		}
+		for (int id : this) {
+			CratEntity entity = pool.getEntity(id);
+			if (entity.isConstructor())
+				sb.append(entity).append(',');
+		}
+		for (int id : this) {
+			CratEntity entity = pool.getEntity(id);
+			if (entity.isMethod() && !entity.isConstructor())
+				sb.append(entity).append(',');
+		}
+		sb.setLength(sb.length() - 1); // delete last comma
+		return sb.toString();
+	}
+
+	/**
+	 * @param pool
+	 *            reference collection to get entity details from
+	 * @return a presentation of entity names set
+	 */
+	public String showNamesSet(IEntityPool pool) {
+		return "{" + showNames(pool) + "}";
+	}
+
+	/**
+	 * @param pool
+	 *            reference collection to get entity details from
+	 * @return string of box-entity names separated by comma
+	 */
+	public String showNamesUnboxed(IEntityPool pool) {
+		return unbox(pool).showNames(pool);
+	}
+
+	/**
+	 * @param pool
+	 *            reference collection to get entity details from
+	 * @return a presentation of box-entity names set
+	 */
+	public String showNamesSetUnboxed(IEntityPool pool) {
+		return "{" + unbox(pool).showNames(pool) + "}";
+	}
+
+	/**
+	 * The long hash code is generated from set elements and set signature
+	 * 
+	 * @return the long hash code
+	 */
+	public long calculateHash() {
+		// Most Significant part = hash of set members
+		// Less Significant part = hash of set signature
+		int hash = 0;
+		for (int e : this)
+			hash = ((hash << 5) - hash) + e; // 31 * hash + id
+		return ((long) hash << 32) + signature().hashCode();
+	}
+
+	// Set operations
+
+	public EntitySet union(EntitySet other) {
+		EntitySet union = new EntitySet(this);
+		union.addAll(other);
+		return union;
+	}
+
+	public EntitySet difference(EntitySet other) {
+		EntitySet difference = new EntitySet(this);
+		difference.removeAll(other);
+		return difference;
+	}
+
+	public EntitySet intersection(EntitySet other) {
+		EntitySet intersection = new EntitySet(this);
+		intersection.retainAll(other);
+		return intersection;
+	}
+
+	// create new set while including/excluding element
+
+	public EntitySet plus(int element) {
+		EntitySet union = new EntitySet(this);
+		union.add(element);
+		return union;
+	}
+
+	public EntitySet without(int element) {
+		EntitySet difference = new EntitySet(this);
+		difference.remove(element);
+		return difference;
+	}
+
+	// Similarity indexes
+
+	/**
+	 * Calculates the Jaccard similarity to another set
+	 * 
+	 * @param other
+	 *            the other set
+	 * @return the Jaccard similarity index
+	 */
+	public double jaccardSimilarityIndex(EntitySet other) {
+		int sizeTotal = size() + other.size();
+		if (sizeTotal == 0)
+			return 0.0;
+		int commonElements = intersection(other).size();
+		return (double) commonElements / (sizeTotal - commonElements);
+	}
+
+	// Distance indexes
+
+	/**
+	 * Calculates the Jaccard distance to another set
+	 * 
+	 * @param other
+	 *            the other set
+	 * @return the Jaccard distance
+	 */
+	public double jaccardDistance(EntitySet other) {
+		return 1.0 - jaccardSimilarityIndex(other);
+	}
+
+	private static final long serialVersionUID = 1L;
+
+	@Override
+	public int compareTo(EntitySet that) {
+		if (size() < that.size())
+			return -1;
+		else if (size() > that.size())
+			return 1;
+		else {
+			Iterator<Integer> thisIterator = iterator();
+			Iterator<Integer> thatIterator = that.iterator();
+			while (thisIterator.hasNext()) {
+				int thisNext = thisIterator.next();
+				int thatNext = thatIterator.next();
+				if (thisNext < thatNext)
+					return -1;
+				else if (thisNext > thatNext)
+					return 1;
+			}
+		}
+		return 0;
+	}
+
+}
+/**
+ * 
+ */
+package gr.uom.jcaliper.system;
+
+import java.util.Collection;
+import java.util.Set;
+
+/**
+ * @author Panagiotis Kouros
+ */
+public class HashedClass extends CratClass {
+
+	protected long hash;
+
+	// constructors
+
+	/**
+	 * @param id
+	 */
+	public HashedClass(int id) {
+		super(id);
+		updateHash();
+	}
+
+	/**
+	 * @param collection
+	 */
+	public HashedClass(Collection<? extends Integer> collection) {
+		super(collection);
+		updateHash();
+	}
+
+	/**
+	 * @param array
+	 */
+	public HashedClass(int[] array) {
+		super(array);
+		updateHash();
+	}
+
+	public HashedClass(Set<? extends Integer> set) {
+		super(set);
+		updateHash();
+	}
+
+	public HashedClass(HashedClass hashed) {
+		super(hashed);
+		hash = hashed.hash;
+	}
+
+	// getters and setters
+
+	public long getHash() {
+		return hash;
+	};
+
+	public void updateHash() {
+		hash = calculateHash();
+	}
+
+	private static final long serialVersionUID = 1L;
+
+}
+package gr.uom.jcaliper.system;
+
+/**
+ * Any entity collection that implements some methods
+ * 
+ * @author Panagiotis Kouros
+ */
+public interface IEntityPool {
+
+	public EntitySet getEntitySet();
+
+	public CratEntity getEntity(int entityId);
+
+	public int getTotalEntities();
+
+}
+package gr.uom.jcaliper.system;
+
+import java.util.HashSet;
+
+/**
+ * @author Panagiotis Kouros
+ */
+public class SystemClass extends CratClass {
+
+	protected int id;
+	protected String name;
+	protected String javaPath;
+	protected CratPackage mypackage;
+	protected IEntityPool entities;
+	protected int properties;
+	protected SystemClass superclass;
+	protected HashSet<SystemClass> subclasses = new HashSet<SystemClass>();
+	protected HashSet<SystemClass> superclasses = new HashSet<SystemClass>();
+	protected SystemClass external;
+	protected HashSet<SystemClass> internals = new HashSet<SystemClass>();
+	protected HashSet<SystemClass> containers = new HashSet<SystemClass>();
+	protected boolean isTarget;
+	private long hash;
+
+	public SystemClass(int id, String name, String javaPath) {
+		super();
+		this.id = id;
+		this.name = name;
+		this.javaPath = javaPath;
+	}
+
+	public void updateTargetability() {
+		/*
+		 * A Class cannot be a move target when - is Interface - is internal class
+		 */
+		if (isInterface() || isInternal())
+			isTarget = false;
+		else
+			isTarget = true;
+	}
+
+	public final void setStatic(boolean flag) {
+		if (flag)
+			properties |= CLASS_IS_STATIC;
+		else
+			properties &= ~CLASS_IS_STATIC;
+		updateTargetability();
+	}
+
+	public boolean isStatic() {
+		return ((properties & CLASS_IS_STATIC) != 0);
+	}
+
+	public final void setInterface(boolean flag) {
+		if (flag)
+			properties |= CLASS_IS_INTERFACE;
+		else
+			properties &= ~CLASS_IS_INTERFACE;
+		updateTargetability();
+	}
+
+	public boolean isInterface() {
+		return ((properties & CLASS_IS_INTERFACE) != 0);
+	}
+
+	public final void setAbstract(boolean flag) {
+		if (flag)
+			properties |= CLASS_IS_ABSTRACT;
+		else
+			properties &= ~CLASS_IS_ABSTRACT;
+		updateTargetability();
+	}
+
+	public boolean isAbstract() {
+		return ((properties & CLASS_IS_ABSTRACT) != 0);
+	}
+
+	public boolean isSuperclass() {
+		return (subclasses.size() > 0);
+	}
+
+	public boolean isSubclass() {
+		return (superclasses.size() > 0);
+	}
+
+	public boolean isInternal() {
+		return (external != null);
+	}
+
+	public boolean hasInternals() {
+		return (internals.size() > 0);
+	}
+
+	public EntitySet getAttributes() {
+		EntitySet attributes = new EntitySet();
+		for (int entityId : this) {
+			CratEntity entity = entities.getEntity(entityId);
+			if (entity.isAttribute())
+				attributes.add(entityId);
+		}
+		return attributes;
+	}
+
+	public EntitySet getMethods() {
+		EntitySet methods = new EntitySet();
+		for (int entityId : this) {
+			CratEntity entity = entities.getEntity(entityId);
+			if (entity.isMethod())
+				methods.add(entityId);
+		}
+		return methods;
+	}
+
+	public EntitySet getConstructors() {
+		EntitySet constructors = new EntitySet();
+		for (int entityId : this) {
+			CratEntity entity = entities.getEntity(entityId);
+			if (entity.isConstructor())
+				constructors.add(entityId);
+		}
+		return constructors;
+	}
+
+	// Getters and Setters
+
+	/**
+	 * @return the id
+	 */
+	public int getId() {
+		return id;
+	}
+
+	/**
+	 * @param id
+	 *            the id to set
+	 */
+	public void setId(int id) {
+		this.id = id;
+	}
+
+	/**
+	 * @return the name
+	 */
+	public String getName() {
+		return name;
+	}
+
+	/**
+	 * @return the javaPath
+	 */
+	public String getJavaPath() {
+		return javaPath;
+	}
+
+	/**
+	 * @return the classPath
+	 */
+	public String getJavaPathWithType() {
+		return (isInterface() ? "interface " : "class ") + javaPath;
+	}
+
+	/**
+	 * @return the entities
+	 */
+	public IEntityPool getEntities() {
+		return entities;
+	}
+
+	/**
+	 * @param entities
+	 *            the entities to set
+	 */
+	public void setEntities(IEntityPool entities) {
+		this.entities = entities;
+	}
+
+	/**
+	 * @return the mypackage
+	 */
+	public CratPackage getPackage() {
+		return mypackage;
+	}
+
+	/**
+	 * @param mypackage
+	 *            the mypackage to set
+	 */
+	public void setPackage(CratPackage mypackage) {
+		this.mypackage = mypackage;
+	}
+
+	/**
+	 * @return the superclass
+	 */
+	public SystemClass getSuperclass() {
+		return superclass;
+	}
+
+	/**
+	 * @param superclass
+	 *            the superclass to set
+	 */
+	public void setSuperclass(SystemClass superclass) {
+		this.superclass = superclass;
+	}
+
+	/**
+	 * @return the subclasses
+	 */
+	public HashSet<SystemClass> getSubclasses() {
+		return subclasses;
+	}
+
+	/**
+	 * @param subclasses
+	 *            the subclasses to set
+	 */
+	public void setSubclasses(HashSet<SystemClass> subclasses) {
+		this.subclasses = subclasses;
+	}
+
+	/**
+	 * @return the superclasses
+	 */
+	public HashSet<SystemClass> getSuperclasses() {
+		return superclasses;
+	}
+
+	/**
+	 * @param superclasses
+	 *            the superclasses to set
+	 */
+	public void setSuperclasses(HashSet<SystemClass> superclasses) {
+		this.superclasses = superclasses;
+	}
+
+	/**
+	 * @return the containers
+	 */
+	public HashSet<SystemClass> getContainers() {
+		return containers;
+	}
+
+	/**
+	 * @return the external
+	 */
+	public SystemClass getExternal() {
+		return external;
+	}
+
+	/**
+	 * @param external
+	 *            the external to set
+	 */
+	public void setExternal(SystemClass external) {
+		this.external = external;
+	}
+
+	/**
+	 * @return the internals
+	 */
+	public HashSet<SystemClass> getInternals() {
+		return internals;
+	}
+
+	/**
+	 * @param internals
+	 *            the internals to set
+	 */
+	public void setInternals(HashSet<SystemClass> internals) {
+		this.internals = internals;
+	}
+
+	/**
+	 * @return the target
+	 */
+	public boolean isTarget() {
+		return isTarget;
+	}
+
+	public static final int CLASS_IS_STATIC = 1 << 0;
+	public static final int CLASS_IS_INTERFACE = 1 << 1;
+	public static final int CLASS_IS_ABSTRACT = 1 << 2;
+
+	public long getHash() {
+		return hash;
+	}
+
+	public void updateHash() {
+		hash = calculateHash();
+	}
+
+	// Presentation
+	@Override
+	public String toString() {
+		return showIdsSet();
+	}
+
+	@Override
+	public String showDetails() {
+		return String.format("%-20s\t%-30s\tID=%d", showIdsSet(), showIdsSetUnboxed(entities),
+				getHash());
+	}
+
+	public String propertiesToText() {
+		StringBuilder sb = new StringBuilder();
+		if (isStatic())
+			sb.append("static ");
+		if (isAbstract())
+			sb.append("abstract ");
+		if (isInternal())
+			sb.append("internal ");
+		if (isInterface())
+			sb.append("interface ");
+		else
+			sb.append("class ");
+		if (!isTarget())
+			sb.append("(not a target)");
+		return sb.toString();
+	}
+
+	private static final long serialVersionUID = 1L;
+
+}
