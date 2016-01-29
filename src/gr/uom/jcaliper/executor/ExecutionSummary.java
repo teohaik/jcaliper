@@ -1,5 +1,6 @@
 package gr.uom.jcaliper.executor;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -14,6 +15,8 @@ import gr.uom.jcaliper.explorer.CraCase;
 import gr.uom.jcaliper.explorer.CratState;
 import gr.uom.jcaliper.refactoring.ExtractClass;
 import gr.uom.jcaliper.refactoring.LocalOptimum;
+import gr.uom.jcaliper.refactoring.RefactoredClass;
+import gr.uom.jcaliper.system.SystemClass;
 
 /**
  * @author Panagiotis Kouros
@@ -67,50 +70,94 @@ public class ExecutionSummary {
 	public String getRefactoringClusters(){
 		StringBuilder sb = new StringBuilder();
 
-		Graph<String, String> graph = createRefactoringGraph();
+		Graph<RefNode, String> graph = createRefactoringGraph();
 		
 		sb.append("--------------------------------- \n");
 		sb.append("Refactoring Graph : \n");
 		sb.append("--------------------------------- \n");
 		sb.append(graph + "\n\n");
-		List<Collection<String>> refactoringClusters = getRefactoringClusters(graph);
 		sb.append("--------------------------------- \n");
 		sb.append("Refactoring Clusters : \n");
 		sb.append("--------------------------------- \n");
-		for(Collection<String> cluster : refactoringClusters){
+		for(Collection<String> cluster : getRefactoringClusters(graph)){
 
 			sb.append(cluster+"\n");
 		}
-
+		
 		return sb.toString();
 	}
+	
+	class RefNode implements Serializable{
 
-	private List<Collection<String>> getRefactoringClusters(Graph<String, String> graph) {
-		WeakComponentClusterer<String,String> clusterer = new WeakComponentClusterer<String,String>();
-		Set<Set<String>> sets = clusterer.transform(graph);
+		private static final long serialVersionUID = 1L;
+		long hash;
+		String name;
+		
+		public RefNode(long anId, String aName){
+			hash = anId;
+			name = aName;
+		}
+		
+		@Override
+		public int hashCode() {
+			return name.hashCode();
+		}
+		
+		@Override
+		public boolean equals(Object obj) {
+			RefNode other = (RefNode)obj;
+			if(this.hash == other.hash){
+				return true;
+			}
+			if(this.name.equals(other.name)){
+				return true;
+			}
+			return false;
+		}
+		
+		@Override
+		public String toString() {
+			return hash+" - "+name;
+		}
+	}
+
+	private List<Collection<String>> getRefactoringClusters(Graph<RefNode, String> graph) {
+		WeakComponentClusterer<RefNode,String> clusterer = new WeakComponentClusterer<RefNode,String>();
+		Set<Set<RefNode>> sets = clusterer.transform(graph);
 		List<Collection<String>> refactoringClusters = new ArrayList<Collection<String>>();
 
-		for(Set<String> component : sets){
+		for(Set<RefNode> component : sets){
 			Collection<String> componentEdges = new HashSet<String>();
-			for(String node : component){
+			for(RefNode node : component){
 				Collection<String> incidentEdges = graph.getIncidentEdges(node);
 				componentEdges.addAll(incidentEdges);
 			}
 			refactoringClusters.add(componentEdges);
+			/*
+			 * Calculation of Initial Entity Placement for classes in each cluster
+			 */
+			Set<Long> clusterNodeIDs = new HashSet<Long>();
+			for(RefNode node : component){
+				clusterNodeIDs.add(node.hash);
+			}
+			double totalEP = craCase.getInitial().getTotalEntityPlacement(clusterNodeIDs);
+			System.out.println("Total Initital EP of cluster "+component+" = "+totalEP);
 		}
 		return refactoringClusters;
 	}
 
-	private Graph<String, String> createRefactoringGraph() {
-		Graph<String, String> graph = new UndirectedSparseGraph<String, String>();
+	private Graph<RefNode, String> createRefactoringGraph() {
+		Graph<RefNode, String> graph = new UndirectedSparseGraph<RefNode, String>();
 		ArrayList<ExtractClass> extractClassRefs = refactored.getExtractClassRefs();
 		int counter = 1;
 		for(ExtractClass extractClassRefactoring : extractClassRefs) {
-			String sourceClass = extractClassRefactoring.getOrigin().getName();
-			String targetClass = extractClassRefactoring.getTarget().getName();
-			graph.addVertex(sourceClass);
-			graph.addVertex(targetClass);
-			graph.addEdge("R"+counter, sourceClass, targetClass);
+			SystemClass sourceClass = extractClassRefactoring.getOrigin();
+			RefactoredClass targetClass = extractClassRefactoring.getTarget();
+			RefNode node1 = new RefNode(sourceClass.getHash(), sourceClass.getName());
+			RefNode node2 = new RefNode(targetClass.getHash(), targetClass.getName());
+			graph.addVertex(node1);
+			graph.addVertex(node2);
+			graph.addEdge("R"+counter, node1, node2);
 			counter++;
 		}
 		return graph;

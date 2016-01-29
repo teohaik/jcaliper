@@ -1,13 +1,14 @@
 package gr.uom.jcaliper.explorer;
 
+import java.util.Collection;
+import java.util.Set;
+import java.util.TreeMap;
+
 import gr.uom.jcaliper.heuristics.IProblemState;
 import gr.uom.jcaliper.metrics.EvaluatedClass;
 import gr.uom.jcaliper.metrics.Metric;
 import gr.uom.jcaliper.system.CratClass;
 import gr.uom.jcaliper.system.HashedClass;
-
-import java.util.Collection;
-import java.util.TreeMap;
 
 /**
  * @author Panagiotis Kouros
@@ -156,5 +157,23 @@ public class CratState extends TreeMap<Long, EvaluatedClass> implements IProblem
 	}
 
 	private static final long serialVersionUID = 1L;
+
+	/*
+	 * Method to calculate Entity Placement for a given set of Classes
+	 */
+
+	public double getTotalEntityPlacement(Set<Long> classes) {
+		double total = 0;
+		for(Long hash : classes){
+			if(this.containsKey(hash)){
+				EvaluatedClass evaluatedClass = this.get(hash);
+				total += evaluatedClass.getEvaluation();
+			}
+		}
+
+		return total;
+	}
+
+
 
 }
